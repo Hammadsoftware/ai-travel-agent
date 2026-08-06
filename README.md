@@ -9,7 +9,7 @@ This project includes a FastAPI app structured under [app](app), with the main e
 1. Create and activate a virtual environment:
 
 ```bash
-cd /home/hammad-tariq/Desktop/langgraph
+cd /Project
 python3 -m venv .venv
 source .venv/bin/activate
 ```
