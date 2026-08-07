@@ -1,14 +1,23 @@
 from fastapi import FastAPI
+from pydantic import BaseModel
 
-app = FastAPI(
-    title="My FastAPI API",
-    description="Backend API using FastAPI",
-    version="1.0.0"
-)
+try:
+    from app.agents.tools.tavily_tool import web_search
+except ModuleNotFoundError:  # pragma: no cover
+    from agents.tools.tavily_tool import web_search
 
-
-@app.get("/")
-async def root():
-    return {"message": "Welcome to FastAPI!"}
+app = FastAPI()
 
 
+class SearchRequest(BaseModel):
+    query: str
+
+
+@app.post("/search")
+async def search(request: SearchRequest):
+    result = web_search.invoke({"query": request.query})
+
+    return {
+        "query": request.query,
+        "result": result
+    }
