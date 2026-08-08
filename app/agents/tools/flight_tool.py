@@ -1,10 +1,12 @@
 
+from datetime import datetime
 import os
 import re
-import certifi
-import requests
+
 import airportsdata
+import certifi
 import pycountry
+import requests
 
 from dotenv import load_dotenv
 from langchain_core.tools import tool
@@ -35,6 +37,22 @@ def clean_text(text:str)->str:
           "day","days","including","hotel","hotels","sightseeing","under","budget",
           "info","information","for","to","from","of","the","a","an"}
     return " ".join(w for w in text.split() if w not in stop)
+
+
+def _parse_datetime(value: str | None):
+    if not value:
+        return None
+    normalized = value.replace("Z", "+00:00")
+    try:
+        return datetime.fromisoformat(normalized)
+    except ValueError:
+        return None
+
+
+def _estimate_price(duration_minutes: int | None) -> float | None:
+    if duration_minutes is None:
+        return None
+    return round(120 + max(duration_minutes, 0) * 1.45, 2)
 
 def country_name_to_code(text:str):
     text=text.lower().strip()
@@ -96,29 +114,67 @@ def parse_route(query:str):
     return None,None
 
 def format_flight(flight:dict)->str:
-    dep=flight.get("departure",{})
-    arr=flight.get("arrival",{})
-    return f"""Airline: {flight.get('airline',{}).get('name')}
-Flight: {flight.get('flight',{}).get('iata')}
-Status: {flight.get('flight_status')}
+    record = parse_flight_record(flight)
+    return f"""Airline: {record.get('airline')}
+Flight: {record.get('flight_number')}
+Status: {record.get('status')}
 
-Departure: {dep.get('airport')} ({dep.get('iata')})
-Scheduled: {dep.get('scheduled')}
-
-Arrival: {arr.get('airport')} ({arr.get('iata')})
-Scheduled: {arr.get('scheduled')}
+Departure: {record.get('origin')} at {record.get('departure_time')}
+Arrival: {record.get('destination')} at {record.get('arrival_time')}
+Duration: {record.get('duration_minutes')} minutes
+Estimated price: {record.get('estimated_price')}
 """
+
+
+def parse_flight_record(flight: dict) -> dict:
+    dep = flight.get("departure", {})
+    arr = flight.get("arrival", {})
+    departure_time = dep.get("scheduled")
+    arrival_time = arr.get("scheduled")
+    departure_dt = _parse_datetime(departure_time)
+    arrival_dt = _parse_datetime(arrival_time)
+    duration_minutes = None
+    if departure_dt and arrival_dt:
+        duration = arrival_dt - departure_dt
+        duration_minutes = max(int(duration.total_seconds() // 60), 0)
+
+    airline = flight.get("airline", {}).get("name") or "Unknown airline"
+    flight_number = flight.get("flight", {}).get("iata")
+
+    return {
+        "airline": airline,
+        "flight_number": flight_number,
+        "origin": dep.get("airport") or dep.get("iata") or dep.get("city"),
+        "destination": arr.get("airport") or arr.get("iata") or arr.get("city"),
+        "departure_time": departure_time,
+        "arrival_time": arrival_time,
+        "departure_hour": departure_dt.hour if departure_dt else None,
+        "duration_minutes": duration_minutes,
+        "estimated_price": _estimate_price(duration_minutes),
+        "status": flight.get("flight_status"),
+    }
+
+
+def fetch_flights_data(query: str) -> list[dict]:
+    dep, arr = parse_route(query)
+    params = {"access_key": API_KEY}
+    if dep:
+        params["dep_iata"] = dep
+    if arr:
+        params["arr_iata"] = arr
+
+    try:
+        response = requests.get(BASE_URL, params=params, timeout=30)
+        response.raise_for_status()
+        data = response.json().get("data", [])
+        return [parse_flight_record(flight) for flight in data[:5]]
+    except Exception:
+        return []
 
 @tool
 def search_flights(query:str)->str:
     """Search flights by natural language route."""
-    dep,arr=parse_route(query)
-    params={"access_key":API_KEY}
-    if dep: params["dep_iata"]=dep
-    if arr: params["arr_iata"]=arr
-    r=requests.get(BASE_URL,params=params,timeout=30)
-    r.raise_for_status()
-    data=r.json().get("data",[])
+    data = fetch_flights_data(query)
     if not data:
         return "No flights found."
-    return "\n\n".join(format_flight(f) for f in data[:5])
+    return "\n\n".join(format_flight(f) for f in data)

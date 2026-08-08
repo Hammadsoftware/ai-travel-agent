@@ -1,6 +1,9 @@
 import os
+from typing import Any
+
 import certifi
 from dotenv import load_dotenv
+from pydantic import BaseModel, Field
 
 load_dotenv()
 
@@ -23,10 +26,12 @@ from langchain_groq import ChatGroq
 
 try:
     from app.agents.tools.tavily_tool import web_search
-    from app.agents.tools.flight_tool import search_flights
+    from app.agents.tools.flight_tool import fetch_flights_data
+    from app.visualizations.schemas import FlightItem, HotelItem
 except ModuleNotFoundError:
     from agents.tools.tavily_tool import web_search
-    from agents.tools.flight_tool import search_flights
+    from agents.tools.flight_tool import fetch_flights_data
+    from visualizations.schemas import FlightItem, HotelItem
 
 # ==========================
 # LLM
@@ -52,6 +57,49 @@ class TravelState(MessagesState):
     hotel_result: str
     itinerary: str
     llm_calls: int
+    flight_items: list[dict[str, Any]]
+    hotel_items: list[dict[str, Any]]
+
+
+class HotelExtractionResult(BaseModel):
+    hotels: list[HotelItem] = Field(default_factory=list)
+
+
+def _format_flight_items(flight_items: list[dict[str, Any]]) -> str:
+    if not flight_items:
+        return "No flight information found."
+
+    lines: list[str] = []
+    for item in flight_items:
+        lines.append(
+            f"Airline: {item.get('airline')}\n"
+            f"Flight: {item.get('flight_number')}\n"
+            f"Status: {item.get('status')}\n"
+            f"Departure: {item.get('origin')} at {item.get('departure_time')}\n"
+            f"Arrival: {item.get('destination')} at {item.get('arrival_time')}\n"
+            f"Duration: {item.get('duration_minutes')} minutes\n"
+            f"Estimated price: {item.get('estimated_price')}"
+        )
+
+    return "\n\n".join(lines)
+
+
+def _format_hotel_items(hotel_items: list[dict[str, Any]]) -> str:
+    if not hotel_items:
+        return "No hotel information found."
+
+    lines: list[str] = []
+    for item in hotel_items:
+        lines.append(
+            f"Hotel: {item.get('name')}\n"
+            f"Area: {item.get('area')}\n"
+            f"Category: {item.get('category')}\n"
+            f"Rating: {item.get('rating')}\n"
+            f"Price per night: {item.get('price_per_night')}\n"
+            f"Booking link: {item.get('booking_url')}"
+        )
+
+    return "\n\n".join(lines)
 
 # ==========================
 # Flight Agent
@@ -106,14 +154,13 @@ Rules:
     # Clean extracted query
     flight_query = response.content.strip()
 
-    # Send only:
-    # "Lahore to Canada"
-    flight_data = search_flights.invoke({
-        "query": flight_query
-    })
+    flight_data = fetch_flights_data(flight_query)
+    flight_items = [FlightItem.model_validate(item).model_dump() for item in flight_data]
+    flight_summary = _format_flight_items(flight_items)
 
     return {
-        "flight_result": flight_data,
+        "flight_items": flight_items,
+        "flight_result": flight_summary,
         "messages": [
             AIMessage(
                 content=f"Flight search completed for {flight_query}"
@@ -173,7 +220,7 @@ Rules:
     destination = response.content.strip()
 
     # Search specifically for hotels and prices
-    hotel_results = web_search.invoke({
+    hotel_search_text = web_search.invoke({
         "query": f"""
 Find hotels in {destination}.
 
@@ -195,8 +242,22 @@ Focus ONLY on hotels in {destination}.
 """
     })
 
+    hotel_extractor = llm.with_structured_output(HotelExtractionResult)
+    hotel_response = hotel_extractor.invoke([
+        SystemMessage(content="Extract structured hotel listings from the search results. Return only hotels that appear relevant to the destination."),
+        HumanMessage(content=f"Destination: {destination}\n\nSearch results:\n{hotel_search_text}"),
+    ])
+
+    if isinstance(hotel_response, HotelExtractionResult):
+        hotel_items = [item.model_dump() for item in hotel_response.hotels]
+    else:
+        hotel_items = [item.model_dump() if hasattr(item, "model_dump") else dict(item) for item in hotel_response.get("hotels", [])]
+
+    hotel_summary = _format_hotel_items(hotel_items)
+
     return {
-        "hotel_result": hotel_results,
+        "hotel_items": hotel_items,
+        "hotel_result": hotel_summary,
         "messages": state["messages"] + [
             AIMessage(
                 content=f"Hotel results fetched for {destination}."
