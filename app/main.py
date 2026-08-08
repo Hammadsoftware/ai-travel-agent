@@ -28,15 +28,7 @@ except ModuleNotFoundError:
 
 app = FastAPI()
 
-# Health route (from app.api.routes.health)
-try:
-    from app.api.routes.health import router as health_router
-except ModuleNotFoundError:
-    from api.routes.health import router as health_router
-
-app.include_router(health_router)
-
-
+#
 class SearchRequest(BaseModel):
     query: str
 

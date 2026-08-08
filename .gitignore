@@ -1,9 +1,6 @@
 .env
-<<<<<<< HEAD
 .env.example
 .venv/
 .env.save
-=======
 __pycache__/
 *.pyc
->>>>>>> agents/fix-folder-structure
