@@ -17,7 +17,7 @@ source .venv/bin/activate
 2. Install the dependencies:
 
 ```bash
-pip install fastapi uvicorn
+pip install -r requirements.txt
 ```
 
 3. Start the server:
@@ -35,6 +35,7 @@ The server will be available at:
 
 - GET `/` → returns a welcome message
 - GET `/health` → returns the server status
+- POST `/travel` → returns flight and hotel summaries, itinerary, `trip_stats`, and Plotly-ready `visualizations`
 
 ### Project structure
 
