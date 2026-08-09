@@ -1,17 +1,11 @@
-
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from langchain_core.messages import HumanMessage
-
-from app.routers.auth import router as auth_router
-
-# LangGraph
-from app.agents import graph
-
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.routers.auth import router as auth_router
+from app.agents import graph
 
-# Visualizations
 try:
     from app.visualizations.charts import (
         build_flight_charts,
@@ -38,10 +32,9 @@ app = FastAPI(
 
 
 # =====================================================
-# Authentication Router
+# CORS
 # =====================================================
 
-app.include_router(auth_router)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -52,11 +45,37 @@ app.add_middleware(
 
 
 # =====================================================
+# Authentication
+# =====================================================
+
+app.include_router(auth_router)
+
+
+# =====================================================
 # Request Schema
 # =====================================================
 
 class AIRequest(BaseModel):
     query: str
+
+
+# =====================================================
+# Health Check
+# =====================================================
+
+@app.get("/")
+def root():
+    return {
+        "status": "ok",
+        "message": "AI Travel Agent API is running",
+    }
+
+
+@app.get("/health")
+def health():
+    return {
+        "status": "healthy",
+    }
 
 
 # =====================================================
@@ -69,13 +88,27 @@ async def ai(request: AIRequest):
     try:
 
         # ---------------------------------------------
+        # Validate query
+        # ---------------------------------------------
+
+        query = request.query.strip()
+
+        if not query:
+            raise HTTPException(
+                status_code=400,
+                detail="Query cannot be empty",
+            )
+
+        print(f"AI REQUEST: {query}")
+
+        # ---------------------------------------------
         # LangGraph State
         # ---------------------------------------------
 
         state = {
-            "user_query": request.query,
+            "user_query": query,
             "messages": [
-                HumanMessage(content=request.query)
+                HumanMessage(content=query)
             ],
             "llm_calls": 0,
         }
@@ -84,7 +117,11 @@ async def ai(request: AIRequest):
         # Run LangGraph
         # ---------------------------------------------
 
+        print("Starting LangGraph...")
+
         result = graph.invoke(state)
+
+        print("LangGraph completed")
 
         # ---------------------------------------------
         # Extract Data
@@ -93,12 +130,12 @@ async def ai(request: AIRequest):
         flight_items = result.get(
             "flight_items",
             []
-        )
+        ) or []
 
         hotel_items = result.get(
             "hotel_items",
             []
-        )
+        ) or []
 
         flight_result = result.get(
             "flight_result"
@@ -111,7 +148,7 @@ async def ai(request: AIRequest):
         itinerary = result.get(
             "itinerary",
             []
-        )
+        ) or []
 
         llm_calls = result.get(
             "llm_calls",
@@ -124,7 +161,7 @@ async def ai(request: AIRequest):
 
         trip_stats = build_trip_stats(
             flight_items,
-            hotel_items
+            hotel_items,
         )
 
         # ---------------------------------------------
@@ -154,12 +191,19 @@ async def ai(request: AIRequest):
         messages = result.get(
             "messages",
             []
-        )
+        ) or []
 
         final_response = ""
 
         if messages:
-            final_response = messages[-1].content
+
+            last_message = messages[-1]
+
+            if hasattr(last_message, "content"):
+                final_response = last_message.content
+
+            else:
+                final_response = str(last_message)
 
         # ---------------------------------------------
         # Response
@@ -168,11 +212,12 @@ async def ai(request: AIRequest):
         return {
             "success": True,
 
-            "query": request.query,
+            "query": query,
 
             "response": final_response,
 
             "data": {
+
                 "flights": {
                     "result": flight_result,
                     "items": flight_items,
@@ -195,10 +240,20 @@ async def ai(request: AIRequest):
             },
         }
 
+    except HTTPException:
+        raise
+
     except Exception as e:
+
+        # VERY IMPORTANT for Render logs
+        print("====================================")
+        print("AI ENDPOINT ERROR")
+        print("====================================")
+        print(type(e).__name__)
+        print(str(e))
+        print("====================================")
 
         raise HTTPException(
             status_code=500,
-            detail=str(e)
+            detail=f"AI agent error: {str(e)}",
         )
-
