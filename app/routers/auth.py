@@ -1,3 +1,4 @@
+
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, EmailStr
 
@@ -10,9 +11,9 @@ router = APIRouter(
 )
 
 
-# =========================
-# Request Schemas
-# =========================
+# =========================================================
+# REQUEST SCHEMAS
+# =========================================================
 
 class SignupRequest(BaseModel):
     name: str
@@ -25,90 +26,157 @@ class SigninRequest(BaseModel):
     password: str
 
 
-# =========================
+# =========================================================
 # SIGNUP
-# =========================
+# =========================================================
 
 @router.post("/signup")
 def signup(user: SignupRequest):
 
-    with get_db() as conn:
-        with conn.cursor() as cursor:
+    try:
 
-            # Check existing email
-            cursor.execute(
-                """
-                SELECT id
-                FROM users
-                WHERE email = %s
-                """,
-                (user.email,)
-            )
+        with get_db() as conn:
 
-            existing_user = cursor.fetchone()
+            with conn.cursor() as cursor:
 
-            if existing_user:
-                raise HTTPException(
-                    status_code=400,
-                    detail="Email already registered"
+                # -------------------------------------------------
+                # Check existing email
+                # -------------------------------------------------
+
+                cursor.execute(
+                    """
+                    SELECT id
+                    FROM users
+                    WHERE email = %s
+                    """,
+                    (user.email,)
                 )
 
-            # Create user
-            cursor.execute(
-                """
-                INSERT INTO users (name, email, password)
-                VALUES (%s, %s, %s)
-                RETURNING id, name, email, created_at
-                """,
-                (
-                    user.name,
-                    user.email,
-                    user.password
+                existing_user = cursor.fetchone()
+
+                if existing_user:
+
+                    raise HTTPException(
+                        status_code=400,
+                        detail="Email already registered"
+                    )
+
+                # -------------------------------------------------
+                # Create user
+                # -------------------------------------------------
+
+                cursor.execute(
+                    """
+                    INSERT INTO users
+                    (
+                        name,
+                        email,
+                        password
+                    )
+                    VALUES (%s, %s, %s)
+                    RETURNING
+                        id,
+                        name,
+                        email,
+                        created_at
+                    """,
+                    (
+                        user.name,
+                        user.email,
+                        user.password
+                    )
                 )
-            )
 
-            new_user = cursor.fetchone()
+                new_user = cursor.fetchone()
 
-        conn.commit()
+            # -------------------------------------------------
+            # Commit transaction
+            # -------------------------------------------------
 
-    return {
-        "message": "Signup successful",
-        "user": new_user
-    }
+            conn.commit()
+
+        return {
+            "message": "Signup successful",
+            "user": new_user
+        }
+
+    except HTTPException:
+        raise
+
+    except Exception as e:
+
+        print("SIGNUP DATABASE ERROR:", repr(e))
+
+        raise HTTPException(
+            status_code=500,
+            detail="Database connection error"
+        )
 
 
-# =========================
+# =========================================================
 # SIGNIN
-# =========================
+# =========================================================
 
 @router.post("/signin")
 def signin(user: SigninRequest):
 
-    with get_db() as conn:
-        with conn.cursor() as cursor:
+    try:
 
-            cursor.execute(
-                """
-                SELECT id, name, email
-                FROM users
-                WHERE email = %s
-                AND password = %s
-                """,
-                (
-                    user.email,
-                    user.password
+        with get_db() as conn:
+
+            with conn.cursor() as cursor:
+
+                # -------------------------------------------------
+                # Find user
+                # -------------------------------------------------
+
+                cursor.execute(
+                    """
+                    SELECT
+                        id,
+                        name,
+                        email
+                    FROM users
+                    WHERE email = %s
+                    AND password = %s
+                    """,
+                    (
+                        user.email,
+                        user.password
+                    )
                 )
+
+                existing_user = cursor.fetchone()
+
+        # -------------------------------------------------
+        # Invalid credentials
+        # -------------------------------------------------
+
+        if not existing_user:
+
+            raise HTTPException(
+                status_code=401,
+                detail="Invalid email or password"
             )
 
-            existing_user = cursor.fetchone()
+        # -------------------------------------------------
+        # Success
+        # -------------------------------------------------
 
-    if not existing_user:
+        return {
+            "message": "Signin successful",
+            "user": existing_user
+        }
+
+    except HTTPException:
+        raise
+
+    except Exception as e:
+
+        print("SIGNIN DATABASE ERROR:", repr(e))
+
         raise HTTPException(
-            status_code=401,
-            detail="Invalid email or password"
+            status_code=500,
+            detail="Database connection error"
         )
 
-    return {
-        "message": "Signin successful",
-        "user": existing_user
-    }
