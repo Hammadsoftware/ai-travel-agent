@@ -8,6 +8,9 @@ from app.routers.auth import router as auth_router
 # LangGraph
 from app.agents import graph
 
+from fastapi.middleware.cors import CORSMiddleware
+
+
 # Visualizations
 try:
     from app.visualizations.charts import (
@@ -39,6 +42,13 @@ app = FastAPI(
 # =====================================================
 
 app.include_router(auth_router)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=False,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 # =====================================================
