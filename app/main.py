@@ -6,10 +6,7 @@ from langchain_core.messages import HumanMessage
 from app.routers.auth import router as auth_router
 
 # LangGraph
-try:
-    from app.agents import graph
-except ModuleNotFoundError:
-    from agents import graph
+from app.agents import graph
 
 # Visualizations
 try:
