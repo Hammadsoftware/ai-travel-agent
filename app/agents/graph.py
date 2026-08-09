@@ -24,14 +24,9 @@ from langchain_core.messages import (
 
 from langchain_groq import ChatGroq
 
-try:
-    from app.agents.tools.tavily_tool import web_search
-    from app.agents.tools.flight_tool import fetch_flights_data
-    from app.visualizations.schemas import FlightItem, HotelItem
-except ModuleNotFoundError:
-    from agents.tools.tavily_tool import web_search
-    from agents.tools.flight_tool import fetch_flights_data
-    from visualizations.schemas import FlightItem, HotelItem
+from app.agents.tools.tavily_tool import web_search
+from app.agents.tools.flight_tool import fetch_flights_data
+from app.visualizations.schemas import FlightItem, HotelItem
 
 # ==========================
 # LLM
