@@ -19,3 +19,4 @@ fastapi==0.141.1
 uvicorn==0.24.0
 
 pydantic[email]==2.13.4
+plotly
